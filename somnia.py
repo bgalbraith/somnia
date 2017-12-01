@@ -8,129 +8,122 @@ from scipy import stats
 from ldp8 import LPD8Controller
 
 
-# ref_image = Image.open('data/kowloon-city.jpg')
-# width, height = ref_image.size
-# som = np.flipud(np.reshape(list(ref_image.getdata()), (height*width, 3))).astype(np.uint8)
+class SOMNIA(object):
+    def __init__(self, source, height=256, width=256, radius=32, alpha=0.1):
+        self.height = height
+        self.width = width
 
-height = 512  # 480  # 720, 1080
-width = 256  # 854  # 1280, 1920
-som = np.random.randint(0, 255, (height*width, 3), dtype=np.uint8)
+        self.som = np.random.randint(0, 255, (height*width, 3), dtype=np.uint8)
+        self.index = np.arange(height*width).reshape((height, width))
+        self.imdata = pyglet.image.ImageData(width, height, 'RGB',
+                                             array.array('B', self.som.flatten()).tobytes())
 
-index = np.arange(height*width).reshape((height, width))
-imdata = pyglet.image.ImageData(width, height, 'RGB',
-                                array.array('B', som.flatten()).tobytes())
+        self.radius = radius
+        self.alpha = alpha
 
-window = pyglet.window.Window(width, height, vsync=True, fullscreen=False)
-radius = 64
-change_radius = False
+        self.source = Image.open(source)
+        self.cursor = [0, 0]
+        self.cycle = 0
 
-alpha = 0.9
-change_alpha = False
+        self.neighborhood, self.weight = self.set_neighborhood_radius()
 
+    def update(self, dt):
+        sample = self.get_sample()
+        bmu = self.find_bmu(sample)
+        self.update_neighborhood(sample, bmu)
+        self.imdata.set_data('RGB', self.width*3, array.array('B', self.som.flatten()).tobytes())
 
-def set_neighborhood_radius(radius, alpha):
-    length = radius*2+1
-    neighborhood = np.mgrid[0:length, 0:length] - radius
-    distance = np.linalg.norm(neighborhood, axis=0)
-    # weight = alpha * np.ones_like(distance)
-    # weight = alpha * radius * stats.norm.pdf(distance, 0, radius / 2)
-    weight = alpha * radius * (stats.norm.pdf(distance, 0, radius / 2) -
-                               0.5*stats.norm.pdf(distance, 0, radius))
-    weight[distance > radius] = 0
-    weight = weight.reshape((length, length, 1))
-    return neighborhood, weight
+    def get_sample(self):
+        pixel = self.source.getpixel(tuple(self.cursor))
 
+        self.cursor[0] += 1
+        if self.cursor[0] >= self.source.width:
+            self.cursor[0] = 0
+            self.cursor[1] += 1
+        if self.cursor[1] >= self.source.height:
+            self.cursor = [0, 0]
+            self.cycle += 1
 
-neighborhood, weight = set_neighborhood_radius(radius, alpha)
+        return pixel
 
+    def find_bmu(self, sample):
+        dist = np.linalg.norm(self.som - sample, axis=1)
+        idx = np.argmin(dist)
+        return np.array([idx // self.width, idx % self.width]).reshape((2, 1, 1))
 
-source = Image.open('data/kowloon-city.jpg')
-cursor = [0, 0]
-cycle = 0
+    def update_neighborhood(self, sample, bmu):
+        neighbors = self.neighborhood + bmu
+        if False:
+            neighbors[0, neighbors[0] >= self.height] -= self.height
+            neighbors[1, neighbors[1] >= self.width] -= self.width
+        else:
+            neighbors[0, neighbors[0] >= self.height] = self.height - 1
+            neighbors[1, neighbors[1] >= self.width] = self.width - 1
+            neighbors[0, neighbors[0] < 0] = 0
+            neighbors[1, neighbors[1] < 0] = 0
 
+        update_index = self.index[neighbors[0], neighbors[1]]
+        self.som[update_index] += (self.weight * (sample - self.som[update_index])).astype(np.uint8)
+        self.som[self.som < 0] = 0
+        self.som[self.som > 255] = 255
 
-def get_sample():
-    global cursor, cycle
-    pixel = source.getpixel(tuple(cursor))
-    cursor[0] += 1
-    if cursor[0] >= source.width:
-        cursor[0] = 0
-        cursor[1] += 1
-    if cursor[1] >= source.height:
-        cursor = [0, 0]
-        cycle += 1
-    return pixel
+    def set_neighborhood_radius(self, mode='rectangle'):
+        r = self.radius
+        length = r*2+1
+        neighborhood = np.mgrid[0:length, 0:length] - r
+        distance = np.linalg.norm(neighborhood, axis=0)
 
+        weight = np.zeros_like(distance)
+        if mode == 'rectangle':
+            weight = np.ones_like(distance)
+        elif mode == 'gaussian':
+            weight = r * stats.norm.pdf(distance, 0, r / 2)
+        elif mode == 'dog':
+            weight = r * (stats.norm.pdf(distance, 0, r / 2) - 0.5*stats.norm.pdf(distance, 0, r))
 
-def find_bmu(sample):
-    dist = np.linalg.norm(som - sample, axis=1)
-    # dmin = np.min(dist)
-    # idx = np.random.choice(np.where(dist == dmin)[0])
-    idx = np.argmin(dist)
-    return np.array([idx // width, idx % width]).reshape((2, 1, 1))
+        weight[distance > r] = 0
+        weight = self.alpha * weight.reshape((length, length, 1))
 
+        return neighborhood, weight
 
-def update_neighborhood(sample, bmu):
-    neighbors = neighborhood + bmu
-    if False:
-        neighbors[0, neighbors[0] >= height] -= height
-        neighbors[1, neighbors[1] >= width] -= width
-    else:
-        neighbors[0, neighbors[0] >= height] = height - 1
-        neighbors[1, neighbors[1] >= width] = width - 1
-        neighbors[0, neighbors[0] < 0] = 0
-        neighbors[1, neighbors[1] < 0] = 0
+    def save_screenshot(self, value, dt):
+        n_pixels = self.cursor[0] + self.source.width*self.cursor[1]
+        self.imdata.save('somnia_{}_{}.png'.format(self.cycle, n_pixels))
 
-    update_index = index[neighbors[0], neighbors[1]]
-    som[update_index] += (weight * (sample - som[update_index])).astype(np.uint8)
-    som[som < 0] = 0
-    som[som > 255] = 255
+    def update_radius(self, value, dt):
+        self.radius = int(1.0 * (value+1))
+        if self.radius < 1:
+            self.radius = 1
 
-
-def update(dt):
-    global neighborhood, weight, radius, change_radius, alpha, change_alpha
-    if change_radius or change_alpha:
-        neighborhood, weight = set_neighborhood_radius(radius, alpha)
-        change_radius = change_alpha = False
-    sample = get_sample()
-    bmu = find_bmu(sample)
-    update_neighborhood(sample, bmu)
-    imdata.set_data('RGB', width*3, array.array('B', som.flatten()).tobytes())
-
-
-@window.event
-def on_draw():
-    window.clear()
-    imdata.blit(0, 0, 0)
+    def update_alpha(self, value, dt):
+        self.alpha = value / 127
 
 
-def update_radius(value, dt):
-    global radius, change_radius
-    radius = int(1.0 * (value+1))
-    if radius < 1:
-        radius = 1
-    change_radius = True
+if __name__ == '__main__':
+    # ref_image = Image.open('data/kowloon-city.jpg')
+    # width, height = ref_image.size
+    # som = np.flipud(np.reshape(list(ref_image.getdata()), (height*width, 3))).astype(np.uint8)
+    # height = 512  # 480  # 720, 1080
+    # width = 256  # 854  # 1280, 1920
 
+    somnia = SOMNIA('data/nin-seed2.jpg', width=256, height=256, alpha=0.05,
+                    radius=16)
+    controller = LPD8Controller()
+    try:
+        controller.open()
+        controller.set_knob_callback(0, somnia.update_radius)
+        controller.set_knob_callback(1, somnia.update_alpha)
+        controller.set_pad_down_callback(0, somnia.save_screenshot)
+    except OSError:
+        pass
 
-def update_alpha(value, dt):
-    global alpha, change_alpha
-    alpha = value / 127
-    change_alpha = True
+    window = pyglet.window.Window(somnia.width, somnia.height, vsync=True,
+                                  fullscreen=False)
 
+    @window.event
+    def on_draw():
+        window.clear()
+        somnia.imdata.blit(0, 0, 0)
 
-def save_screenshot(value, dt):
-    n_pixels = cursor[0] + source.width*cursor[1]
-    imdata.save('somnia_{}_{}.png'.format(cycle, n_pixels))
-
-
-controller = LPD8Controller()
-try:
-    controller.open()
-    controller.set_knob_callback(0, update_radius)
-    controller.set_knob_callback(1, update_alpha)
-    controller.set_pad_down_callback(0, save_screenshot)
-except OSError:
-    pass
-
-pyglet.clock.schedule_interval(update, 1/30.0)
-pyglet.app.run()
+    pyglet.clock.schedule_interval(somnia.update, 1/30)
+    pyglet.app.run()
