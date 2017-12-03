@@ -13,11 +13,9 @@ class SOMNIA(object):
         self.height = height
         self.width = width
 
-        self.som = np.random.randint(0, 255, (height*width, 3), dtype=np.uint8)
-        self.index = np.arange(height*width).reshape((height, width))
+        self.som = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
         self.imdata = pyglet.image.ImageData(width, height, 'RGB',
                                              array.array('B', self.som.flatten()).tobytes())
-
         self.radius = radius
         self.alpha = alpha
 
@@ -26,8 +24,13 @@ class SOMNIA(object):
         self.cycle = 0
 
         self.neighborhood, self.weight = self.set_neighborhood_radius()
+        self.changed = False
 
     def update(self, dt):
+        if self.changed:
+            self.neighborhood, self.weight = self.set_neighborhood_radius()
+            self.changed = False
+
         sample = self.get_sample()
         bmu = self.find_bmu(sample)
         self.update_neighborhood(sample, bmu)
@@ -47,7 +50,7 @@ class SOMNIA(object):
         return pixel
 
     def find_bmu(self, sample):
-        dist = np.linalg.norm(self.som - sample, axis=1)
+        dist = np.linalg.norm(self.som - sample, axis=2)
         idx = np.argmin(dist)
         return np.array([idx // self.width, idx % self.width]).reshape((2, 1, 1))
 
@@ -62,7 +65,8 @@ class SOMNIA(object):
             neighbors[0, neighbors[0] < 0] = 0
             neighbors[1, neighbors[1] < 0] = 0
 
-        update_index = self.index[neighbors[0], neighbors[1]]
+        update_index = [neighbors[0], neighbors[1]]
+
         self.som[update_index] += (self.weight * (sample - self.som[update_index])).astype(np.uint8)
         self.som[self.som < 0] = 0
         self.som[self.som > 255] = 255
@@ -94,18 +98,14 @@ class SOMNIA(object):
         self.radius = int(1.0 * (value+1))
         if self.radius < 1:
             self.radius = 1
+        self.changed = True
 
     def update_alpha(self, value, dt):
         self.alpha = value / 127
+        self.changed = True
 
 
 if __name__ == '__main__':
-    # ref_image = Image.open('data/kowloon-city.jpg')
-    # width, height = ref_image.size
-    # som = np.flipud(np.reshape(list(ref_image.getdata()), (height*width, 3))).astype(np.uint8)
-    # height = 512  # 480  # 720, 1080
-    # width = 256  # 854  # 1280, 1920
-
     somnia = SOMNIA('data/nin-seed2.jpg', width=256, height=256, alpha=0.05,
                     radius=16)
     controller = LPD8Controller()
