@@ -12,12 +12,13 @@ from ldp8 import LPD8Controller
 
 
 class SOMNIA(object):
-    def __init__(self, source, height=256, width=256, radius=32, alpha=0.1):
+    def __init__(self, source, height=256, width=256, radius=32, alpha=0.1,
+                 wrap=(True, True)):
         self.height = height
         self.width = width
         self.k_height = height
         self.k_width = width
-        self.wrap = (True, True)
+        self.wrap = wrap
 
         self.som = 255*torch.rand(1, 3, height, width)
         self.delta = torch.zeros(1, 3, height, width)
@@ -62,15 +63,24 @@ class SOMNIA(object):
     def update_neighborhood(self, bmu):
         neighbors = self.neighborhood + bmu
 
+        mask = torch.ones(len(self.template)).type(torch.ByteTensor)
         if self.wrap[0]:
             neighbors[0] %= self.height
+        else:
+            mask *= neighbors[0] >= 0
+            mask *= neighbors[0] < self.height
+
         if self.wrap[1]:
             neighbors[1] %= self.width
+        else:
+            mask *= neighbors[1] >= 0
+            mask *= neighbors[1] < self.width
 
+        neighbors = neighbors.masked_select(mask).view(2, -1)
+        template = self.template.masked_select(mask)
         self.weight *= 0
-        self.weight[neighbors[0], neighbors[1]] = self.template
-        up = self.weight * self.delta
-        self.som += up
+        self.weight[neighbors[0], neighbors[1]] = template
+        self.som += self.weight * self.delta
         self.som[self.som < 0] = 0
         self.som[self.som > 255] = 255
 
@@ -131,8 +141,8 @@ class SOMNIADataset(Dataset):
 
 
 if __name__ == '__main__':
-    somnia = SOMNIA('data/real_nvp.jpeg', width=512, height=256, alpha=0.25,
-                    radius=32)
+    somnia = SOMNIA('data/real_nvp.jpeg', width=256, height=256, alpha=0.25,
+                    radius=16, wrap=(False, False))
     controller = LPD8Controller()
     try:
         controller.open()
