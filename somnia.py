@@ -6,6 +6,7 @@ import pyglet
 from scipy import stats
 import torch
 import torch.nn.functional as F
+from torch.utils.data import Dataset
 
 from ldp8 import LPD8Controller
 
@@ -19,7 +20,6 @@ class SOMNIA(object):
         self.wrap = (True, True)
 
         self.som = 255*torch.rand(1, 3, height, width)
-        self.sample = torch.zeros(1, 3, 1, 1)
         self.delta = torch.zeros(1, 3, height, width)
         img = self.som.numpy().squeeze().transpose((1, 2, 0)).flatten()
         self.imdata = pyglet.image.ImageData(width, height, 'RGB',
@@ -27,9 +27,7 @@ class SOMNIA(object):
         self.radius = radius
         self.alpha = alpha
 
-        self.source = Image.open(source)
-        self.cursor = [0, 0]
-        self.cycle = 0
+        self.dataset = SOMNIADataset(source)
 
         self.weight = torch.zeros(height, width)
         self.neighborhood, self.template = self.set_neighborhood_radius()
@@ -40,27 +38,17 @@ class SOMNIA(object):
             self.neighborhood, self.weight = self.set_neighborhood_radius()
             self.changed = False
 
-        self.get_sample()
-        bmu = self.find_bmu()
+        sample = self.get_sample()
+        bmu = self.find_bmu(sample)
         self.update_neighborhood(bmu)
         img = self.som.numpy().squeeze().transpose((1, 2, 0)).flatten()
         self.imdata.set_data('RGB', self.width*3, array.array('B', img).tobytes())
 
     def get_sample(self):
-        pixel = self.source.getpixel(tuple(self.cursor))
+        return next(self.dataset)
 
-        self.cursor[0] += 1
-        if self.cursor[0] >= self.source.width:
-            self.cursor[0] = 0
-            self.cursor[1] += 1
-        if self.cursor[1] >= self.source.height:
-            self.cursor = [0, 0]
-            self.cycle += 1
-
-        self.sample[0] = torch.Tensor(pixel)
-
-    def find_bmu(self):
-        self.delta = self.sample - self.som
+    def find_bmu(self, sample):
+        self.delta = sample - self.som
         dist = -1*torch.norm(self.delta, 2, 1)
         _, idx = F.max_pool2d(dist, (self.k_height, self.k_width),
                               return_indices=True)
@@ -122,8 +110,28 @@ class SOMNIA(object):
         self.changed = True
 
 
+class SOMNIADataset(Dataset):
+    def __init__(self, source):
+        image = Image.open(source)
+        self.data = torch.Tensor(list(image.getdata())).view(-1, 3, 1, 1)
+        self.cursor = 0
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, item):
+        return self.data[item].view(1, 3, 1, 1)
+
+    def __next__(self):
+        if self.cursor >= len(self):
+            self.cursor = 0
+        sample = self[self.cursor]
+        self.cursor += 1
+        return sample
+
+
 if __name__ == '__main__':
-    somnia = SOMNIA('data/real_nvp.jpeg', width=256, height=256, alpha=0.25,
+    somnia = SOMNIA('data/real_nvp.jpeg', width=512, height=256, alpha=0.25,
                     radius=32)
     controller = LPD8Controller()
     try:
