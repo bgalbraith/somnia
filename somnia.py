@@ -1,5 +1,6 @@
 import array
 from functools import partial
+import time
 
 import numpy as np
 from PIL import Image
@@ -112,7 +113,7 @@ class SOMNIA(object):
         return torch.from_numpy(n), torch.from_numpy(weight.astype(np.float32))
 
     def save_screenshot(self, value, dt):
-        self.imdata.save('somnia_{}.png'.format(self.dataset.cursor))
+        self.imdata.save('somnia_{}.png'.format(time.time()))
 
     def update_radius(self, value, dt):
         self.radius = int(1.0 * (value+1))
@@ -123,6 +124,11 @@ class SOMNIA(object):
     def update_alpha(self, value, dt):
         self.alpha = value / 127
         self.changed = True
+
+    def update_tiling(self, value, dt):
+        self.tiling = value // 16 + 1
+        self.k_height = self.height // self.tiling
+        self.k_width = self.width // self.tiling
 
     def change_neighborhood(self, mode, value, dt):
         self.mode = mode
@@ -153,21 +159,22 @@ class SOMNIADataset(Dataset):
 if __name__ == '__main__':
     dataset = SOMNIADataset('data/real_nvp.jpeg')
     loader = DataLoader(dataset, shuffle=True)
-    somnia = SOMNIA(loader, width=128, height=128, alpha=0.05, radius=2,
-                    wrap=(False, False), tiling=4, mode='rectangle')
+    somnia = SOMNIA(loader, width=256, height=256, alpha=0.05, radius=32,
+                    wrap=(False, False), tiling=1, mode='rectangle')
     controller = LPD8Controller()
     try:
         controller.open()
         controller.set_knob_callback(0, somnia.update_radius)
         controller.set_knob_callback(1, somnia.update_alpha)
+        controller.set_knob_callback(2, somnia.update_tiling)
         controller.set_pad_down_callback(0, somnia.save_screenshot)
-        controller.set_pad_down_callback(3, partial(somnia.change_neighborhood,
-                                                    'rectangle'))
         controller.set_pad_down_callback(4, partial(somnia.change_neighborhood,
-                                                    'linear'))
+                                                    'rectangle'))
         controller.set_pad_down_callback(5, partial(somnia.change_neighborhood,
-                                                    'gaussian'))
+                                                    'linear'))
         controller.set_pad_down_callback(6, partial(somnia.change_neighborhood,
+                                                    'gaussian'))
+        controller.set_pad_down_callback(7, partial(somnia.change_neighborhood,
                                                     'dog'))
     except OSError:
         pass
