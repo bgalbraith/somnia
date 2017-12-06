@@ -1,3 +1,4 @@
+import argparse
 import array
 from functools import partial
 import time
@@ -11,6 +12,29 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 from ldp8 import LPD8Controller
+
+
+parser = argparse.ArgumentParser(description='SOMNIA')
+parser.add_argument('--source', type=str, help='image to draw samples from')
+parser.add_argument('--height', type=int, default=256,
+                    help='SOM height (default: 256)')
+parser.add_argument('--width', type=int, default=256,
+                    help='SOM width (default: 256)')
+parser.add_argument('--shuffle', action='store_true',
+                    help='shuffle the input samples')
+parser.add_argument('--mode', type=str, default='rectangle',
+                    help='initial neighborhood window function, can be rectangle, linear, gaussian, dog (default: rectangle)')
+parser.add_argument('--alpha', type=float, default=0.05,
+                    help='initial learning rate (default: 0.05)')
+parser.add_argument('--radius', type=int, default=16,
+                    help='initial neighborhood radius (default: 16)')
+parser.add_argument('--wrap_x', action='store_true',
+                    help='wrap neighborhood around the x axis')
+parser.add_argument('--wrap_y', action='store_true',
+                    help='wrap neighborhood around the y axis')
+parser.add_argument('--tiling', type=int, default=1,
+                    help='sub SOM factor')
+args = parser.parse_args()
 
 
 class SOMNIA(object):
@@ -135,7 +159,6 @@ class SOMNIA(object):
         self.changed = True
 
 
-
 class SOMNIADataset(Dataset):
     def __init__(self, source):
         image = Image.open(source)
@@ -157,10 +180,11 @@ class SOMNIADataset(Dataset):
 
 
 if __name__ == '__main__':
-    dataset = SOMNIADataset('data/real_nvp.jpeg')
-    loader = DataLoader(dataset, shuffle=True)
-    somnia = SOMNIA(loader, width=256, height=256, alpha=0.05, radius=32,
-                    wrap=(False, False), tiling=1, mode='rectangle')
+    dataset = SOMNIADataset(args.source)
+    loader = DataLoader(dataset, shuffle=args.shuffle)
+    somnia = SOMNIA(loader, width=args.width, height=args.height,
+                    alpha=args.alpha, radius=args.radius, mode=args.mode,
+                    wrap=(args.wrap_y, args.wrap_x), tiling=args.tiling)
     controller = LPD8Controller()
     try:
         controller.open()
