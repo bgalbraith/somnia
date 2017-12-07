@@ -1,0 +1,6 @@
+numpy
+pillow
+pyglet
+python-rtmidi
+scipy
+torch
