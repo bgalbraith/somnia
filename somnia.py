@@ -34,6 +34,8 @@ parser.add_argument('--wrap_y', action='store_true',
                     help='wrap neighborhood around the y axis')
 parser.add_argument('--tiling', type=int, default=1,
                     help='sub SOM factor')
+parser.add_argument('--lpd8', action='store_true',
+                    help='use the AKAI LPD8 controller')
 args = parser.parse_args()
 
 
@@ -147,9 +149,13 @@ class SOMNIA(object):
 
     def update_alpha(self, value, dt):
         self.alpha = value / 127
+        if self.alpha < 0:
+            self.alpha = 0
         self.changed = True
 
     def update_tiling(self, value, dt):
+        if value < 0:
+            value = 0
         self.tiling = value // 16 + 1
         self.k_height = self.height // self.tiling
         self.k_width = self.width // self.tiling
@@ -185,23 +191,25 @@ if __name__ == '__main__':
     somnia = SOMNIA(loader, width=args.width, height=args.height,
                     alpha=args.alpha, radius=args.radius, mode=args.mode,
                     wrap=(args.wrap_y, args.wrap_x), tiling=args.tiling)
-    controller = LPD8Controller()
-    try:
-        controller.open()
-        controller.set_knob_callback(0, somnia.update_radius)
-        controller.set_knob_callback(1, somnia.update_alpha)
-        controller.set_knob_callback(2, somnia.update_tiling)
-        controller.set_pad_down_callback(0, somnia.save_screenshot)
-        controller.set_pad_down_callback(4, partial(somnia.change_neighborhood,
-                                                    'rectangle'))
-        controller.set_pad_down_callback(5, partial(somnia.change_neighborhood,
-                                                    'linear'))
-        controller.set_pad_down_callback(6, partial(somnia.change_neighborhood,
-                                                    'gaussian'))
-        controller.set_pad_down_callback(7, partial(somnia.change_neighborhood,
-                                                    'dog'))
-    except OSError:
-        pass
+
+    if args.lpd8:
+        controller = LPD8Controller()
+        try:
+            controller.open()
+            controller.set_knob_callback(0, somnia.update_radius)
+            controller.set_knob_callback(1, somnia.update_alpha)
+            controller.set_knob_callback(2, somnia.update_tiling)
+            controller.set_pad_down_callback(0, somnia.save_screenshot)
+            controller.set_pad_down_callback(4, partial(somnia.change_neighborhood,
+                                                        'rectangle'))
+            controller.set_pad_down_callback(5, partial(somnia.change_neighborhood,
+                                                        'linear'))
+            controller.set_pad_down_callback(6, partial(somnia.change_neighborhood,
+                                                        'gaussian'))
+            controller.set_pad_down_callback(7, partial(somnia.change_neighborhood,
+                                                        'dog'))
+        except OSError:
+            print('LPD8 controller not found')
 
     window = pyglet.window.Window(somnia.width, somnia.height, vsync=False,
                                   fullscreen=False)
@@ -210,6 +218,31 @@ if __name__ == '__main__':
     def on_draw():
         window.clear()
         somnia.imdata.blit(0, 0, 0)
+
+    @window.event
+    def on_key_press(key, modifiers):
+        if key == pyglet.window.key.RIGHT:
+            somnia.update_radius(somnia.radius + 1, None)
+        elif key == pyglet.window.key.LEFT:
+            somnia.update_radius(somnia.radius - 2, None)
+        elif key == pyglet.window.key.UP:
+            somnia.update_alpha(somnia.alpha*127 + 1, None)
+        elif key == pyglet.window.key.DOWN:
+            somnia.update_alpha(somnia.alpha*127 - 1, None)
+        elif key == pyglet.window.key.BRACKETRIGHT:
+            somnia.update_tiling((somnia.tiling + 1) * 16, None)
+        elif key == pyglet.window.key.BRACKETLEFT:
+            somnia.update_tiling((somnia.tiling - 2) * 16, None)
+        elif key == pyglet.window.key._1:
+            somnia.change_neighborhood('rectangle', None, None)
+        elif key == pyglet.window.key._2:
+            somnia.change_neighborhood('linear', None, None)
+        elif key == pyglet.window.key._3:
+            somnia.change_neighborhood('gaussian', None, None)
+        elif key == pyglet.window.key._4:
+            somnia.change_neighborhood('dog', None, None)
+        elif key == pyglet.window.key.SPACE:
+            somnia.save_screenshot(None, None)
 
     pyglet.clock.schedule(somnia.update)
     pyglet.app.run()
